@@ -1,82 +1,61 @@
-# core/freemium.py
 """
-Freemium limits and upgrade management for EducApp
+Freemium system for EducApp
+Manages question limits and subscription status
 """
 
-import sqlite3
-from datetime import datetime
-from core.database import DB_PATH
+import streamlit as st
+from datetime import datetime, date
+from core.database_supabase import SupabaseDatabase
 
-# Freemium settings
-FREE_MONTHLY_LIMIT = 10
-PAID_MONTHLY_PRICE = 19  # USD
+# Initialize database
+db = SupabaseDatabase()
 
+# Free tier limits
+FREE_QUESTIONS_PER_MONTH = 10
 
 def get_user_usage(email):
-    """Get user's current usage and subscription status"""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
+    """Get user's current usage and limits"""
+    user = db.get_user_by_email(email)
     
-    c.execute('''SELECT subscription_status, questions_this_month, last_reset_date 
-                 FROM users WHERE email = ?''', (email,))
-    result = c.fetchone()
-    conn.close()
-    
-    if not result:
+    if not user:
         return None
     
-    status, questions_count, last_reset = result
+    # Check if user is paid
+    if user.get('subscription_status') == 'active':
+        return {
+            'status': 'paid',
+            'has_limit': False,
+            'questions_used': user.get('questions_asked', 0),
+            'limit': None
+        }
     
-    # Check if we need to reset the counter (new month)
+    # Free user - check if monthly reset is needed
+    last_reset = user.get('last_reset_date')
+    today = date.today()
+    
     if last_reset:
-        last_reset_date = datetime.strptime(last_reset, '%Y-%m-%d')
-        now = datetime.now()
+        # Convert string to date if needed
+        if isinstance(last_reset, str):
+            last_reset = datetime.strptime(last_reset, '%Y-%m-%d').date()
         
-        # If it's a new month, reset counter
-        if now.month != last_reset_date.month or now.year != last_reset_date.year:
-            reset_monthly_counter(email)
-            questions_count = 0
+        # Reset if it's a new month
+        if last_reset.month != today.month or last_reset.year != today.year:
+            db.reset_monthly_questions(user['id'])
+            questions_used = 0
+        else:
+            questions_used = user.get('questions_asked', 0)
+    else:
+        questions_used = user.get('questions_asked', 0)
     
     return {
-        'status': status,
-        'questions_used': questions_count or 0,
-        'limit': FREE_MONTHLY_LIMIT if status == 'free' else None,
-        'has_limit': status == 'free',
-        'is_at_limit': (status == 'free' and (questions_count or 0) >= FREE_MONTHLY_LIMIT)
+        'status': 'free',
+        'has_limit': True,
+        'questions_used': questions_used,
+        'limit': FREE_QUESTIONS_PER_MONTH
     }
 
-
-def reset_monthly_counter(email):
-    """Reset monthly question counter for a user"""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    
-    c.execute('''UPDATE users 
-                 SET questions_this_month = 0,
-                     last_reset_date = ?
-                 WHERE email = ?''',
-              (datetime.now().strftime('%Y-%m-%d'), email))
-    
-    conn.commit()
-    conn.close()
-    print(f"🔄 Reset monthly counter for {email}")
-
-
-def increment_question_count(email):
-    """Increment user's question count"""
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    
-    c.execute('''UPDATE users 
-                 SET questions_this_month = questions_this_month + 1
-                 WHERE email = ?''', (email,))
-    
-    conn.commit()
-    conn.close()
-
-
 def can_ask_question(email):
-    """Check if user can ask another question"""
+    """Check if user can ask a question"""
     usage = get_user_usage(email)
     
     if not usage:
@@ -87,30 +66,33 @@ def can_ask_question(email):
         return True
     
     # Free users check limit
-    return usage['questions_used'] < FREE_MONTHLY_LIMIT
+    return usage['questions_used'] < usage['limit']
 
-
-def get_upgrade_message(user_email, user_name):
-    """Get the upgrade prompt message with Stripe checkout URL"""
-    from core.stripe_payment import get_stripe_checkout_url
+def increment_question_count(email):
+    """Increment user's question count"""
+    user = db.get_user_by_email(email)
     
-    # Get Stripe checkout URL
-    checkout_url = get_stripe_checkout_url(user_email, user_name)
+    if user:
+        db.increment_questions_asked(user['id'])
+
+def get_upgrade_message(email, name):
+    """Get upgrade message for user"""
+    from core.stripe_payment import create_checkout_session
+    
+    # Try to create checkout session
+    checkout_url = create_checkout_session(email, name)
     
     message = f"""
-### 🎓 Upgrade to EducApp Premium
-
-You've reached your free limit of **{FREE_MONTHLY_LIMIT} questions** this month.
-
-**Upgrade to Premium for:**
-- ✅ **Unlimited questions** every month
-- ✅ Full access to all subjects
-- ✅ Priority support
-- ✅ Support Christian education
-
-**Only $19/month**
-
-*Your monthly question limit resets on the 1st of each month.*
-"""
+    ### 🎯 Upgrade to Premium - Unlimited Access!
+    
+    **Premium Benefits:**
+    - ✅ Unlimited questions every month
+    - ✅ Priority support
+    - ✅ Access to all subjects
+    - ✅ Conversation history (unlimited)
+    - ✅ Support Christian education development
+    
+    **Only $15/month** - Cancel anytime
+    """
     
     return message, checkout_url

@@ -8,9 +8,22 @@ from core.chatbot import EducAppTutor
 from core.auth import check_authentication, logout, get_current_user
 from core.freemium import get_user_usage, can_ask_question, increment_question_count, get_upgrade_message
 from core.conversation_manager import ConversationManager
-from core.database import get_user_id_by_email
+from core.database_supabase import SupabaseDatabase
 import sys
 from datetime import datetime
+
+# Initialize database
+@st.cache_resource
+def get_database():
+    """Get database instance - cached to reuse connection"""
+    return SupabaseDatabase()
+
+# Helper function to get user ID by email
+def get_user_id_by_email(email):
+    """Get user ID from email"""
+    db = get_database()
+    user = db.get_user_by_email(email)
+    return user['id'] if user else None
 
 # Page configuration
 st.set_page_config(

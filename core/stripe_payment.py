@@ -6,7 +6,19 @@ Stripe payment integration for EducApp
 import stripe
 import os
 from dotenv import load_dotenv
-from core.database import upgrade_to_paid
+from core.database_supabase import SupabaseDatabase
+
+# Initialize database
+db = SupabaseDatabase()
+
+def upgrade_to_paid(email, subscription_id=None):
+    """Upgrade user to paid subscription"""
+    db.update_subscription(email, 'active', subscription_id)
+
+def get_user_subscription_status(email):
+    """Get user's subscription status"""
+    user = db.get_user_by_email(email)
+    return user.get('subscription_status', 'free') if user else 'free'
 
 # Load environment variables
 load_dotenv()
@@ -33,8 +45,8 @@ def create_checkout_session(user_email, user_name):
                 },
             ],
             mode='subscription',
-            success_url='http://localhost:8501/?success=true',
-            cancel_url='http://localhost:8501/?canceled=true',
+            success_url='https://guyhitalk-educapp-backend-app-lipvfm.streamlit.app/?success=true',
+            cancel_url='https://guyhitalk-educapp-backend-app-lipvfm.streamlit.app/?canceled=true',
             metadata={
                 'user_email': user_email,
                 'user_name': user_name,
@@ -68,7 +80,7 @@ def verify_payment(session_id):
             
             if user_email:
                 # Upgrade user to paid
-                upgrade_to_paid(user_email)
+                upgrade_to_paid(user_email, session.subscription)
                 return True
         
         return False
@@ -96,12 +108,10 @@ def check_payment_success():
         user_email = current_user['email']
         
         # Check if user needs to be upgraded
-        from core.database import get_user_subscription_status
         current_status = get_user_subscription_status(user_email)
         
-        if current_status != 'paid':
+        if current_status != 'active':
             # Upgrade the user
-            from core.database import upgrade_to_paid
             upgrade_to_paid(user_email)
             st.success("🎉 Payment successful! Your account has been upgraded to Premium!")
             st.balloons()

@@ -74,7 +74,7 @@ class EducAppTutor:
             ai_response = self.llm.invoke(messages)
             response = ai_response.content
             
-            # NEW: Track token usage and cost
+            # Track token usage and cost
             if user_email:
                 try:
                     # Get token counts from response metadata
@@ -96,10 +96,7 @@ class EducAppTutor:
                 except Exception as e:
                     print(f"⚠️ Error tracking usage: {e}")
             
-            # NEW: Save conversation to history
-            if user_email:
-                from core.database import save_conversation
-                save_conversation(user_email, student_question, response, subject)
+            # Note: Conversation saving is handled in app.py via ConversationManager
             
         except Exception as e:
             response = f"I encountered an error generating a response. Please try again. Error: {str(e)}"

@@ -12,3 +12,5 @@ langchain-community
 langchain-openai
 chromadb
 sentence-transformers
+supabase
+psycopg2-binary

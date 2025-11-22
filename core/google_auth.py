@@ -5,8 +5,24 @@ import os
 import streamlit as st
 from google.oauth2 import id_token
 from google.auth.transport import requests
-from core.database import user_exists, create_user, get_user
+from core.database_supabase import SupabaseDatabase
 import secrets
+
+# Initialize database
+db = SupabaseDatabase()
+
+def user_exists(email):
+    """Check if user exists"""
+    user = db.get_user_by_email(email)
+    return user is not None
+
+def create_user(email, password=None, name=None, google_id=None):
+    """Create new user"""
+    return db.create_user(email, password, name, google_id)
+
+def get_user(email):
+    """Get user by email"""
+    return db.get_user_by_email(email)
 
 def get_google_client_id():
     """Get Google OAuth client ID from environment"""
@@ -93,7 +109,7 @@ def handle_google_login(user_info):
     if not user_exists(email):
         # Create new user with random password (they'll use Google to login)
         random_password = secrets.token_urlsafe(32)
-        create_user(email, name, random_password)
+        create_user(email, random_password, name)
         st.success(f"Welcome to EducApp, {name}!")
     else:
         st.success(f"Welcome back, {name}!")

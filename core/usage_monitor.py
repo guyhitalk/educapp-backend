@@ -6,6 +6,10 @@ Tracks token usage and estimates costs for Anthropic Claude API
 
 import os
 from datetime import datetime
+from core.database_supabase import SupabaseDatabase
+
+# Initialize database
+db = SupabaseDatabase()
 
 # Claude 3 Opus Pricing (as of Nov 2024)
 INPUT_COST_PER_1M_TOKENS = 15.00   # $15 per 1M input tokens
@@ -61,10 +65,12 @@ def track_api_call(user_email, input_tokens, output_tokens, model='claude-3-opus
     Returns:
         Estimated cost in USD
     """
-    from core.database import log_api_call
-    
+    # Note: API call logging not yet implemented in Supabase
+    # This is a placeholder for future implementation
     estimated_cost = estimate_cost(input_tokens, output_tokens, model)
-    log_api_call(user_email, input_tokens, output_tokens, estimated_cost, model)
+    
+    # TODO: Add API call logging to Supabase database
+    # db.log_api_call(user_email, input_tokens, output_tokens, estimated_cost, model)
     
     return estimated_cost
 
@@ -76,11 +82,18 @@ def get_user_monthly_stats(user_email):
     Returns:
         Dictionary with usage stats
     """
-    from core.database import get_monthly_cost, get_monthly_usage
+    # Note: Detailed usage tracking not yet implemented
+    # This is a placeholder for future implementation
     
-    total_cost = get_monthly_cost(user_email)
-    total_questions = get_monthly_usage(user_email)
+    # TODO: Add monthly cost tracking to Supabase
+    # total_cost = db.get_monthly_cost(user_email)
+    # total_questions = db.get_monthly_usage(user_email)
     
+    user = db.get_user_by_email(user_email)
+    total_questions = user.get('questions_asked', 0) if user else 0
+    
+    # Rough estimate based on questions asked
+    total_cost = total_questions * 0.05  # Approximate $0.05 per question
     avg_cost_per_question = total_cost / total_questions if total_questions > 0 else 0
     
     return {
@@ -112,28 +125,34 @@ def estimate_monthly_burn_rate():
     Returns:
         Dictionary with burn rate statistics
     """
-    from core.database import get_monthly_api_costs, get_all_users_stats
+    # Note: Detailed API cost tracking not yet implemented
+    # This is a placeholder for future implementation
     
-    api_costs = get_monthly_api_costs()
-    user_stats = get_all_users_stats()
+    # TODO: Add comprehensive API cost tracking to Supabase
+    user_stats = db.get_user_stats()
     
-    free_users = user_stats.get('free', 0)
-    paid_users = user_stats.get('paid', 0)
+    free_users = user_stats.get('free_users', 0)
+    paid_users = user_stats.get('paid_users', 0)
+    total_questions = user_stats.get('total_questions', 0)
+    
+    # Rough estimate
+    total_cost = total_questions * 0.05  # ~$0.05 per question
+    avg_cost_per_call = 0.05
     
     # Calculate revenue
-    monthly_revenue = paid_users * 19  # $19 per paid user
+    monthly_revenue = paid_users * 15  # $15 per paid user
     
     # Calculate profit/loss
-    profit = monthly_revenue - api_costs['total_cost']
+    profit = monthly_revenue - total_cost
     
     return {
-        'total_cost': api_costs['total_cost'],
+        'total_cost': total_cost,
         'monthly_revenue': monthly_revenue,
         'profit_loss': profit,
         'free_users': free_users,
         'paid_users': paid_users,
-        'total_calls': api_costs['total_calls'],
-        'avg_cost_per_call': api_costs['avg_cost_per_call']
+        'total_calls': total_questions,
+        'avg_cost_per_call': avg_cost_per_call
     }
 
 
