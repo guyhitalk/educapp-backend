@@ -1,0 +1,13 @@
+[client]
+toolbarMode = "minimal"
+showSidebarNavigation = false
+
+[theme]
+primaryColor = "#1E40AF"
+backgroundColor = "#0F172A"
+secondaryBackgroundColor = "#1E293B"
+textColor = "#F1F5F9"
+
+[server]
+enableCORS = false
+enableXsrfProtection = true
