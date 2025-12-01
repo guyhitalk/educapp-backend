@@ -23,7 +23,7 @@ class EducAppTutor:
         # Use Claude 3 Opus
         self.llm = ChatAnthropic(
             model="claude-3-opus-20240229",
-            temperature=0.3,
+            temperature=0.0,  # Changed from 0.3 to reduce randomness and improve accuracy           
             api_key=os.getenv("ANTHROPIC_API_KEY")
         )
         

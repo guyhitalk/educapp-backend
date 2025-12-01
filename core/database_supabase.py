@@ -1,11 +1,10 @@
 """
 Supabase Database Handler for EducApp
-Replaces SQLite with PostgreSQL on Supabase
+Uses Supabase REST API instead of direct PostgreSQL
 """
 
 import os
-import psycopg2
-from psycopg2.extras import RealDictCursor
+from supabase import create_client, Client
 from datetime import datetime
 import bcrypt
 from dotenv import load_dotenv
@@ -14,242 +13,224 @@ load_dotenv()
 
 class SupabaseDatabase:
     def __init__(self):
-        self.connection_string = os.getenv('SUPABASE_URL')
-        self._create_tables()
-    
-    def get_connection(self):
-        """Get database connection"""
-        return psycopg2.connect(self.connection_string)
-    
-    def _create_tables(self):
-        """Create all necessary tables if they don't exist"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        # Use Supabase REST API
+        self.url = os.getenv('SUPABASE_URL')
+        self.key = os.getenv('SUPABASE_KEY')
         
-        # Users table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                id SERIAL PRIMARY KEY,
-                email TEXT UNIQUE NOT NULL,
-                password_hash TEXT,
-                name TEXT,
-                google_id TEXT UNIQUE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                subscription_status TEXT DEFAULT 'free',
-                subscription_id TEXT,
-                questions_asked INTEGER DEFAULT 0,
-                last_reset_date DATE
-            )
-        ''')
+        if not self.url or not self.key:
+            raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set in .env file")
         
-        # Conversations table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS conversations (
-                id SERIAL PRIMARY KEY,
-                user_id INTEGER REFERENCES users(id),
-                question TEXT NOT NULL,
-                answer TEXT NOT NULL,
-                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        conn.commit()
-        cursor.close()
-        conn.close()
+        self.client: Client = create_client(self.url, self.key)
+        # Note: Table creation should be done via Supabase Dashboard SQL editor
     
     # USER MANAGEMENT
     def create_user(self, email, password=None, name=None, google_id=None):
         """Create new user"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
         password_hash = None
         if password:
             password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
         
         try:
-            cursor.execute('''
-                INSERT INTO users (email, password_hash, name, google_id, last_reset_date)
-                VALUES (%s, %s, %s, %s, CURRENT_DATE)
-                RETURNING id
-            ''', (email, password_hash, name, google_id))
+            data = {
+                'email': email,
+                'password_hash': password_hash,
+                'name': name,
+                'google_id': google_id,
+                'last_reset_date': datetime.now().date().isoformat(),
+                'questions_asked': 0,
+                'subscription_status': 'free'
+            }
             
-            user_id = cursor.fetchone()[0]
-            conn.commit()
-            return user_id
-        except psycopg2.IntegrityError:
-            conn.rollback()
+            response = self.client.table('users').insert(data).execute()
+            
+            if response.data and len(response.data) > 0:
+                return response.data[0]['id']
             return None
-        finally:
-            cursor.close()
-            conn.close()
+            
+        except Exception as e:
+            print(f"Error creating user: {e}")
+            return None
     
     def get_user_by_email(self, email):
         """Get user by email"""
-        conn = self.get_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        cursor.execute('SELECT * FROM users WHERE email = %s', (email,))
-        user = cursor.fetchone()
-        
-        cursor.close()
-        conn.close()
-        return dict(user) if user else None
+        try:
+            response = self.client.table('users').select('*').eq('email', email).execute()
+            
+            if response.data and len(response.data) > 0:
+                return response.data[0]
+            return None
+            
+        except Exception as e:
+            print(f"Error getting user by email: {e}")
+            return None
     
     def get_user_by_google_id(self, google_id):
         """Get user by Google ID"""
-        conn = self.get_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        cursor.execute('SELECT * FROM users WHERE google_id = %s', (google_id,))
-        user = cursor.fetchone()
-        
-        cursor.close()
-        conn.close()
-        return dict(user) if user else None
+        try:
+            response = self.client.table('users').select('*').eq('google_id', google_id).execute()
+            
+            if response.data and len(response.data) > 0:
+                return response.data[0]
+            return None
+            
+        except Exception as e:
+            print(f"Error getting user by Google ID: {e}")
+            return None
     
     def verify_password(self, email, password):
         """Verify user password"""
         user = self.get_user_by_email(email)
-        if not user or not user['password_hash']:
+        if not user or not user.get('password_hash'):
             return False
         
-        return bcrypt.checkpw(password.encode('utf-8'), user['password_hash'].encode('utf-8'))
+        try:
+            return bcrypt.checkpw(password.encode('utf-8'), user['password_hash'].encode('utf-8'))
+        except:
+            return False
     
     def update_subscription(self, email, status, subscription_id=None):
         """Update user subscription"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            UPDATE users 
-            SET subscription_status = %s, subscription_id = %s
-            WHERE email = %s
-        ''', (status, subscription_id, email))
-        
-        conn.commit()
-        cursor.close()
-        conn.close()
+        try:
+            data = {
+                'subscription_status': status,
+                'subscription_id': subscription_id
+            }
+            
+            self.client.table('users').update(data).eq('email', email).execute()
+            
+        except Exception as e:
+            print(f"Error updating subscription: {e}")
     
     # CONVERSATION MANAGEMENT
     def save_conversation(self, user_id, question, answer):
         """Save conversation"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            INSERT INTO conversations (user_id, question, answer)
-            VALUES (%s, %s, %s)
-        ''', (user_id, question, answer))
-        
-        conn.commit()
-        cursor.close()
-        conn.close()
+        try:
+            data = {
+                'user_id': user_id,
+                'question': question,
+                'answer': answer,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            self.client.table('conversations').insert(data).execute()
+            
+        except Exception as e:
+            print(f"Error saving conversation: {e}")
     
     def get_user_conversations(self, user_id, limit=50):
         """Get user conversations"""
-        conn = self.get_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        cursor.execute('''
-            SELECT * FROM conversations 
-            WHERE user_id = %s 
-            ORDER BY timestamp DESC 
-            LIMIT %s
-        ''', (user_id, limit))
-        
-        conversations = cursor.fetchall()
-        
-        cursor.close()
-        conn.close()
-        return [dict(conv) for conv in conversations]
+        try:
+            response = self.client.table('conversations')\
+                .select('*')\
+                .eq('user_id', user_id)\
+                .order('timestamp', desc=True)\
+                .limit(limit)\
+                .execute()
+            
+            return response.data if response.data else []
+            
+        except Exception as e:
+            print(f"Error getting conversations: {e}")
+            return []
     
     def delete_conversation(self, conversation_id, user_id):
         """Delete specific conversation"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            DELETE FROM conversations 
-            WHERE id = %s AND user_id = %s
-        ''', (conversation_id, user_id))
-        
-        conn.commit()
-        cursor.close()
-        conn.close()
+        try:
+            self.client.table('conversations')\
+                .delete()\
+                .eq('id', conversation_id)\
+                .eq('user_id', user_id)\
+                .execute()
+                
+        except Exception as e:
+            print(f"Error deleting conversation: {e}")
     
     def clear_user_conversations(self, user_id):
         """Clear all conversations for user"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('DELETE FROM conversations WHERE user_id = %s', (user_id,))
-        
-        conn.commit()
-        cursor.close()
-        conn.close()
+        try:
+            self.client.table('conversations')\
+                .delete()\
+                .eq('user_id', user_id)\
+                .execute()
+                
+        except Exception as e:
+            print(f"Error clearing conversations: {e}")
     
     # USAGE TRACKING
     def increment_questions_asked(self, user_id):
         """Increment question count"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            UPDATE users 
-            SET questions_asked = questions_asked + 1 
-            WHERE id = %s
-        ''', (user_id,))
-        
-        conn.commit()
-        cursor.close()
-        conn.close()
+        try:
+            # Get current count
+            user_response = self.client.table('users').select('questions_asked').eq('id', user_id).execute()
+            
+            if user_response.data and len(user_response.data) > 0:
+                current_count = user_response.data[0].get('questions_asked', 0)
+                new_count = current_count + 1
+                
+                # Update count
+                self.client.table('users').update({'questions_asked': new_count}).eq('id', user_id).execute()
+                
+        except Exception as e:
+            print(f"Error incrementing questions: {e}")
     
     def reset_monthly_questions(self, user_id):
         """Reset monthly question count"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            UPDATE users 
-            SET questions_asked = 0, last_reset_date = CURRENT_DATE
-            WHERE id = %s
-        ''', (user_id,))
-        
-        conn.commit()
-        cursor.close()
-        conn.close()
+        try:
+            data = {
+                'questions_asked': 0,
+                'last_reset_date': datetime.now().date().isoformat()
+            }
+            
+            self.client.table('users').update(data).eq('id', user_id).execute()
+            
+        except Exception as e:
+            print(f"Error resetting questions: {e}")
     
     # ADMIN FUNCTIONS
     def get_all_users(self):
         """Get all users (admin)"""
-        conn = self.get_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        cursor.execute('SELECT * FROM users ORDER BY created_at DESC')
-        users = cursor.fetchall()
-        
-        cursor.close()
-        conn.close()
-        return [dict(user) for user in users]
+        try:
+            response = self.client.table('users')\
+                .select('*')\
+                .order('created_at', desc=True)\
+                .execute()
+            
+            return response.data if response.data else []
+            
+        except Exception as e:
+            print(f"Error getting all users: {e}")
+            return []
     
     def get_user_stats(self):
         """Get user statistics"""
-        conn = self.get_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        cursor.execute('''
-            SELECT 
-                COUNT(*) as total_users,
-                COUNT(CASE WHEN subscription_status = 'active' THEN 1 END) as paid_users,
-                COUNT(CASE WHEN subscription_status = 'free' THEN 1 END) as free_users,
-                SUM(questions_asked) as total_questions
-            FROM users
-        ''')
-        
-        stats = cursor.fetchone()
-        
-        cursor.close()
-        conn.close()
-        return dict(stats) if stats else {}
-
+        try:
+            # Get all users
+            response = self.client.table('users').select('subscription_status, questions_asked').execute()
+            
+            if not response.data:
+                return {
+                    'total_users': 0,
+                    'paid_users': 0,
+                    'free_users': 0,
+                    'total_questions': 0
+                }
+            
+            users = response.data
+            
+            stats = {
+                'total_users': len(users),
+                'paid_users': sum(1 for u in users if u.get('subscription_status') == 'active'),
+                'free_users': sum(1 for u in users if u.get('subscription_status') == 'free'),
+                'total_questions': sum(u.get('questions_asked', 0) for u in users)
+            }
+            
+            return stats
+            
+        except Exception as e:
+            print(f"Error getting user stats: {e}")
+            return {
+                'total_users': 0,
+                'paid_users': 0,
+                'free_users': 0,
+                'total_questions': 0
+            }
