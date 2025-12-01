@@ -12,6 +12,16 @@ from core.database_supabase import SupabaseDatabase
 import sys
 from datetime import datetime
 
+# Hide GitHub fork button and Streamlit branding
+hide_streamlit_style = """
+<style>
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+header {visibility: hidden;}
+</style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
 # Initialize database
 @st.cache_resource
 def get_database():
