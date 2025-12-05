@@ -20,9 +20,9 @@ class EducAppTutor:
     """
     
     def __init__(self):
-        # Use Claude 3 Opus
+        # Use Claude 4 Sonnet
         self.llm = ChatAnthropic(
-            model="claude-3-opus-20240229",
+            model="claude-sonnet-4-20250514",
             temperature=0.0,  # Changed from 0.3 to reduce randomness and improve accuracy           
             api_key=os.getenv("ANTHROPIC_API_KEY")
         )
